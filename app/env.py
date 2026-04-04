@@ -1,17 +1,20 @@
 import random
 from fastapi import FastAPI
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+
 
 # ============================
 # MODEL
 # ============================
-model = SentenceTransformer("all-MiniLM-L6-v2")
 
-def semantic_similarity(a, b):
-    emb1 = model.encode([a])
-    emb2 = model.encode([b])
-    return cosine_similarity(emb1, emb2)[0][0]
+
+def simple_similarity(a, b):
+    a_words = set(a.lower().split())
+    b_words = set(b.lower().split())
+    
+    if not a_words or not b_words:
+        return 0
+    
+    return len(a_words & b_words) / len(a_words | b_words)
 
 # ============================
 # GRADER
@@ -36,7 +39,7 @@ def grade_action(memory, expected):
     if expected_reply.strip() == "":
         similarity = 1.0
     else:
-        similarity = semantic_similarity(reply, expected_reply)
+        similarity = simple_similarity(reply, expected_reply)
 
     if similarity > 0.7:
         score += 0.25
@@ -200,3 +203,36 @@ def step(action: dict):
 @app.get("/state")
 def state():
     return env.state()
+
+class EmailEnv:
+    def __init__(self):
+        self.emails = load_emails()
+        self.index = 0
+        self.current_email = None
+
+    def reset(self):
+        self.index = 0
+        self.current_email = self.emails[self.index]
+        return self.current_email
+
+    def state(self):
+        return self.current_email
+
+    def step(self, action):
+        # action = {
+        #   category, priority, action_type, reply
+        # }
+
+        reward = compute_reward(self.current_email, action)
+
+        self.index += 1
+        done = self.index >= len(self.emails)
+
+        if not done:
+            self.current_email = self.emails[self.index]
+
+        return {
+            "next_state": self.current_email,
+            "reward": reward,
+            "done": done
+        }
