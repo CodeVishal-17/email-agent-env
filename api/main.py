@@ -1,3 +1,5 @@
+import random
+from fastapi import FastAPI
 from fastapi import FastAPI
 from pydantic import BaseModel
 from app.env import EmailEnv
@@ -14,6 +16,25 @@ class Action(BaseModel):
     reply: str | None = None
 
 # ================= ROUTES =================
+
+app = FastAPI()
+
+emails = [
+    "Win a free iPhone now!!! Click here",
+    "Client meeting tomorrow at 3 PM",
+    "Your interview is scheduled",
+    "Suspicious login detected",
+    "Flat 50% OFF on products"
+]
+
+
+@app.post("/reset")
+def reset():
+    return {"email_text": random.choice(emails)}
+
+@app.get("/")
+def home():
+    return {"message": "API running"}
 
 @app.get("/")
 def home():
