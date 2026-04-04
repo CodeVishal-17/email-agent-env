@@ -1,14 +1,17 @@
 import asyncio
 import os
 from typing import List
+from openai import OpenAI
 
 from my_env_v4 import MyEnvV4Action, MyEnvV4Env
 
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
 # ================= CONFIG =================
 
 TASK_NAME = "email-agent"
 BENCHMARK = "my_env_v4"
-MODEL_NAME = "rule-based-agent"
 
 MAX_STEPS = 5
 
@@ -58,6 +61,10 @@ async def main():
     steps_taken = 0
 
     log_start()
+    client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=HF_TOKEN
+)
 
     try:
         result = await env.reset()
@@ -67,7 +74,17 @@ async def main():
             if result.done:
                 break
 
-            action_text = agent(email)
+            try:
+                response = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {"role": "user", "content": email}
+                    ],
+                    max_tokens=50
+                )
+                action_text = response.choices[0].message.content.strip()
+            except:
+                action_text = agent(email)  # fallback
 
             result = await env.step(MyEnvV4Action(message=action_text))
 
@@ -84,7 +101,8 @@ async def main():
             if done:
                 break
 
-        score = min(sum(rewards) / (MAX_STEPS * 10), 1.0)
+        score = sum(rewards)
+        score = min(max(score, 0.0), 1.0)
         success = score > 0.2
 
     finally:
