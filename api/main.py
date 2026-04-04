@@ -6,6 +6,19 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from app.env import EmailEnv
 
+def load_emails():
+    try:
+        path = os.path.join("data", "emails.json")
+        with open(path, "r") as f:
+            return json.load(f)
+    except:
+        return [
+            "Win a free iPhone now!!! Click here",
+            "Client meeting tomorrow at 3 PM",
+            "Your interview is scheduled",
+            "Suspicious login detected",
+            "Flat 50% OFF on products"
+        ]
 app = FastAPI()
 env = EmailEnv()
 
@@ -30,19 +43,6 @@ emails = [
 ]
 
 
-def load_emails():
-    try:
-        path = os.path.join("data", "emails.json")
-        with open(path, "r") as f:
-            return json.load(f)
-    except:
-        return [
-            "Win a free iPhone now!!! Click here",
-            "Client meeting tomorrow at 3 PM",
-            "Your interview is scheduled",
-            "Suspicious login detected",
-            "Flat 50% OFF on products"
-        ]
 
 
 @app.post("/reset")
