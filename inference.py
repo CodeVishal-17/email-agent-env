@@ -1,113 +1,73 @@
-import asyncio
-import os
-from typing import List
-from openai import OpenAI
+import requests
 
-from my_env_v4 import MyEnvV4Action, MyEnvV4Env
-
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
-# ================= CONFIG =================
-
-TASK_NAME = "email-agent"
-BENCHMARK = "my_env_v4"
-
-MAX_STEPS = 5
-
-# ================= YOUR AI LOGIC =================
-
-def agent(email: str):
-    email = email.lower()
-
-    if any(w in email for w in ["free", "offer", "win", "click", "off"]):
-        return "ignore spam email"
-
-    if "meeting" in email:
-        return "schedule meeting"
-
-    if "interview" in email:
-        return "reply interview confirmation"
-
-    if "suspicious" in email:
-        return "escalate security issue"
-
-    return "generic reply"
-
-# ================= LOGGING =================
+BASE_URL = "http://localhost:7860"
 
 def log_start():
-    print(f"[START] task={TASK_NAME} env={BENCHMARK} model={MODEL_NAME}", flush=True)
+    print("[START] task=email-agent env=custom model=rule-based", flush=True)
 
 def log_step(step, action, reward, done):
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error=null",
-        flush=True,
-    )
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
 
-def log_end(success, steps, score, rewards: List[float]):
+def log_end(success, steps, score, rewards):
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
-        flush=True,
-    )
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
-# ================= MAIN =================
 
-async def main():
-    env = await MyEnvV4Env.from_docker_image(os.getenv("IMAGE_NAME"))
+def agent(email):
+    email = email.lower()
 
+    if "free" in email or "win" in email:
+        return {"category": "spam", "priority": "low", "action_type": "ignore", "reply": ""}
+
+    if "meeting" in email:
+        return {"category": "important", "priority": "high", "action_type": "schedule", "reply": "Confirmed"}
+
+    if "interview" in email:
+        return {"category": "important", "priority": "high", "action_type": "reply", "reply": "I will attend"}
+
+    return {"category": "important", "priority": "low", "action_type": "reply", "reply": "Noted"}
+
+
+def main():
     rewards = []
-    steps_taken = 0
+    steps = 0
 
     log_start()
-    client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=HF_TOKEN
-)
 
-    try:
-        result = await env.reset()
-        email = result.observation.echoed_message
+    # RESET
+    res = requests.post(f"{BASE_URL}/reset").json()
+    email = res["email_text"]
 
-        for step in range(1, MAX_STEPS + 1):
-            if result.done:
-                break
+    decision = agent(email)
 
-            try:
-                response = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "user", "content": email}
-                    ],
-                    max_tokens=50
-                )
-                action_text = response.choices[0].message.content.strip()
-            except:
-                action_text = agent(email)  # fallback
+    # STEP 1
+    r1 = requests.post(f"{BASE_URL}/step", json={"category": decision["category"]}).json()
+    log_step(1, decision["category"], r1.get("reward", 0), False)
 
-            result = await env.step(MyEnvV4Action(message=action_text))
+    # STEP 2
+    r2 = requests.post(f"{BASE_URL}/step", json={"priority": decision["priority"]}).json()
+    log_step(2, decision["priority"], r2.get("reward", 0), False)
 
-            reward = result.reward or 0.0
-            done = result.done
+    # STEP 3
+    r3 = requests.post(f"{BASE_URL}/step", json={"action_type": decision["action_type"]}).json()
+    log_step(3, decision["action_type"], r3.get("reward", 0), False)
 
-            rewards.append(reward)
-            steps_taken = step
+    # STEP 4
+    r4 = requests.post(f"{BASE_URL}/step", json={"reply": decision["reply"]}).json()
+    log_step(4, decision["reply"], r4.get("reward", 0), True)
 
-            log_step(step, action_text, reward, done)
+    rewards = [
+        r1.get("reward", 0),
+        r2.get("reward", 0),
+        r3.get("reward", 0),
+        r4.get("reward", 0),
+    ]
 
-            email = result.observation.echoed_message
+    score = min(sum(rewards), 1.0)
+    success = score > 0.3
 
-            if done:
-                break
+    log_end(success, 4, score, rewards)
 
-        score = sum(rewards)
-        score = min(max(score, 0.0), 1.0)
-        success = score > 0.2
-
-    finally:
-        await env.close()
-        log_end(success, steps_taken, score, rewards)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
